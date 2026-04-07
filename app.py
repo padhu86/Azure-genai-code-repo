@@ -1,24 +1,36 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from openai import AzureOpenAI
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 import os
-import requests
 
 app = FastAPI()
 
-# Template setup
+# Templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
-# APIM details
-APIM_ENDPOINT = "https://apim-dev-southindia-01.azure-api.net/dev/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-15-preview"
+# 🔐 Managed Identity
+credential = DefaultAzureCredential()
 
-# Home page
+token_provider = get_bearer_token_provider(
+    credential,
+    "https://cognitiveservices.azure.com/.default"
+)
+
+client = AzureOpenAI(
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_version="2024-02-15-preview",
+    azure_ad_token_provider=token_provider
+)
+
+# Home
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse(request, "index.html", {})
 
-# Chat endpoint
+# Chat
 @app.post("/chat")
 async def chat(req: Request):
     body = await req.json()
@@ -27,54 +39,36 @@ async def chat(req: Request):
     if not user_query:
         return {"response": "Please enter a question"}
 
-    # 🔥 Get key at runtime
-    APIM_KEY = os.getenv("APIM_SUBSCRIPTION_KEY")
-
-    if not APIM_KEY:
-        return {
-            "response": "Configuration error: APIM key missing"
-        }
-
     try:
-        response = requests.post(
-            APIM_ENDPOINT + f"&subscription-key={APIM_KEY}",   # ✅ Query param
-            headers={
-                "Content-Type": "application/json",
-                "api-key": APIM_KEY   # ✅ Header
-            },
-            json={
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": user_query}
-                ]
-            },
-            timeout=30
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_query}
+            ]
         )
 
-        data = response.json()
-
-        # ✅ Success case
-        if "choices" in data:
-            return {
-                "response": data["choices"][0]["message"]["content"]
-            }
-
-        # ❌ Error case
         return {
-            "response": f"APIM Error ({response.status_code}): {data}"
+            "response": response.choices[0].message.content
         }
 
     except Exception as e:
         return {
-            "response": f"Exception occurred: {str(e)}"
+            "response": f"Error: {str(e)}"
         }
 
-# Test APIM endpoint
-@app.get("/test-apim")
-async def test_apim():
-    APIM_KEY = os.getenv("APIM_SUBSCRIPTION_KEY")
+# Test endpoint
+@app.get("/test-openai")
+async def test_openai():
+    try:
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+            messages=[
+                {"role": "user", "content": "Say hello"}
+            ]
+        )
 
-    return {
-        "key_present": APIM_KEY is not None,
-        "key_preview": APIM_KEY[:5] if APIM_KEY else None
-    }
+        return {"response": response.choices[0].message.content}
+
+    except Exception as e:
+        return {"error": str(e)}
