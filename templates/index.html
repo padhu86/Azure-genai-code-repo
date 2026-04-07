@@ -2,6 +2,21 @@
 <html>
 <head>
     <title>GenAI Chat</title>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 40px;
+        }
+        #chat {
+            margin-bottom: 20px;
+        }
+        .user {
+            color: blue;
+        }
+        .bot {
+            color: green;
+        }
+    </style>
 </head>
 <body>
 
@@ -9,24 +24,39 @@
 
 <div id="chat"></div>
 
-<input id="input" placeholder="Ask something..." />
+<input id="input" placeholder="Ask something..." style="width:300px;" />
 <button onclick="send()">Send</button>
 
 <script>
 async function send() {
-    let msg = document.getElementById("input").value;
+    let inputBox = document.getElementById("input");
+    let msg = inputBox.value.trim();
 
-    let res = await fetch("/chat", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({message: msg})
-    });
+    if (!msg) return;
 
-    let data = await res.json();
+    let chatDiv = document.getElementById("chat");
 
-    document.getElementById("chat").innerHTML += 
-        `<p><b>You:</b> ${msg}</p>
-         <p><b>Bot:</b> ${data.response}</p>`;
+    // Show user message
+    chatDiv.innerHTML += `<p class="user"><b>You:</b> ${msg}</p>`;
+
+    inputBox.value = "";
+
+    try {
+        let res = await fetch("/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: msg})
+        });
+
+        let data = await res.json();
+
+        // Handle response safely
+        let botReply = data.response || "⚠️ No response from server";
+
+        chatDiv.innerHTML += `<p class="bot"><b>Bot:</b> ${botReply}</p>`;
+    } catch (error) {
+        chatDiv.innerHTML += `<p class="bot"><b>Bot:</b> ⚠️ Error connecting to server</p>`;
+    }
 }
 </script>
 
